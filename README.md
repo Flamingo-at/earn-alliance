@@ -14,7 +14,7 @@ pip install -r requirements.txt
 ```
 
 ## 💻 Preparing
-+ Create an ```accounts.txt``` and put the accounts in the format ```{address}:{private_key}:{ip}:{port}:{login}:{password}```
++ Create an ```accounts.txt``` and put the accounts in the format ```address:private_key:ip:port:login:password```
 + Run the bot:
 ```python
 python earn_alliance.py
@@ -24,7 +24,7 @@ python earn_alliance.py
 + ```Delay(sec)``` - delay between referral registrations in seconds
 + ```Threads``` - number of simultaneous registrations
 
-In ```balances.txt``` accounts are saved in the format ```{ally_token_amount}:{address}```
+In ```balances.txt``` accounts are saved in the format ```ally_token_amount:address```
 
 ## 📧 Contacts
 + Telegram - [@flamingoat](https://t.me/flamingoat)
