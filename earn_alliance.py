@@ -117,7 +117,7 @@ async def get_balance(client: ClientSession, address: str, user_id: str):
                                }) as response:
             token_balance = (await response.json())['data']['payload']['allyToken']
 
-        with open('balances.txt', 'w', encoding='utf-8') as file:
+        with open('balances.txt', 'a', encoding='utf-8') as file:
             file.write(f'{token_balance}:{address}\n')
 
     except:
