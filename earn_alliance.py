@@ -75,19 +75,24 @@ async def get_token(client: ClientSession, address: str, token: str) -> tuple:
 
 @retry(retry=retry_if_exception(Exception), stop=stop_after_attempt(5), reraise=True)
 async def search_daily_chest(client: ClientSession, address: str) -> str:
-    try:
-        async with client.post('https://graphql-ea.earnalliance.com/v1/graphql',
-                               json={
-                                   "operationName": "SearchDailyChest",
-                                   "variables": {
-                                       "fetchCount": 0
-                                   },
-                                   "query": "mutation SearchDailyChest($fetchCount: Int!) {\n  payload: searchDailyChest(args: {fetchCount: $fetchCount}) {\n    status\n    rarity\n    totalSessionTime\n    sessionCount\n    totalFetchCount\n    __typename\n  }\n}"
-                               }) as response:
-            status = (await response.json())['data']['payload']['status']
-        return status
-    except:
-        raise Exception(f'{address} | Error searching daily chest')
+    while True:
+        try:
+            async with client.post('https://graphql-ea.earnalliance.com/v1/graphql',
+                                   json={
+                                       "operationName": "SearchDailyChest",
+                                       "variables": {
+                                           "fetchCount": 0
+                                       },
+                                       "query": "mutation SearchDailyChest($fetchCount: Int!) {\n  payload: searchDailyChest(args: {fetchCount: $fetchCount}) {\n    status\n    rarity\n    totalSessionTime\n    sessionCount\n    totalFetchCount\n    __typename\n  }\n}"
+                                   }) as response:
+                status = (await response.json())['data']['payload']['status']
+
+            if status == 'NOT_FOUND':
+                continue
+
+            return status
+        except:
+            raise Exception(f'{address} | Error searching daily chest')
 
 
 @retry(retry=retry_if_exception(Exception), stop=stop_after_attempt(5), reraise=True)
@@ -159,6 +164,8 @@ async def worker(q_account: asyncio.Queue):
                     await open_daily_chest(client, address)
                     with open('successfully_claim.txt', 'a', encoding='utf-8') as file:
                         file.write(f'{account}\n')
+                elif status == 'OPENED':
+                    logger.info(f'{address} | Daily Chest has been')
                 else:
                     logger.info(f'{address} | Daily Chest not found')
 
