@@ -96,6 +96,22 @@ async def search_daily_chest(client: ClientSession, address: str) -> str:
 
 
 @retry(retry=retry_if_exception(Exception), stop=stop_after_attempt(5), reraise=True)
+async def search_weekly_chest(client: ClientSession, address: str) -> str:
+    while True:
+        try:
+            async with client.post('https://graphql-ea.earnalliance.com/v1/graphql',
+                                   json={
+                                       "operationName": "GetWeeklyChests",
+                                       "variables": {},
+                                       "query": "query GetWeeklyChests {\n  payload: getWeeklyChests {\n    chests {\n      id\n      expiredAt\n      collectedAt\n      __typename\n    }\n    releasedAt\n    expiredAt\n    __typename\n  }\n}"
+                                   }) as response:
+                data = (await response.json())['data']['payload']['chests']
+            return data
+        except:
+            raise Exception(f'{address} | Error searching weekly chest')
+
+
+@retry(retry=retry_if_exception(Exception), stop=stop_after_attempt(5), reraise=True)
 async def open_daily_chest(client: ClientSession, address: str):
     try:
         async with client.post('https://graphql-ea.earnalliance.com/v1/graphql',
@@ -107,6 +123,22 @@ async def open_daily_chest(client: ClientSession, address: str):
             (await response.json())['data']['payload']['rewards']
     except:
         raise Exception(f'{address} | Error opening daily chest')
+
+
+@retry(retry=retry_if_exception(Exception), stop=stop_after_attempt(5), reraise=True)
+async def open_weekly_chest(client: ClientSession, address: str, chest_id: str):
+    try:
+        async with client.post('https://graphql-ea.earnalliance.com/v1/graphql',
+                               json={
+                                   "operationName": "OpenWeeklyChest",
+                                   "variables": {
+                                     "userChestId": chest_id
+                                   },
+                                   "query": "mutation OpenWeeklyChest($userChestId: uuid!) {\n  payload: openWeeklyChest(args: {userChestId: $userChestId}) {\n    rewards {\n      reward {\n        rewardRarity\n        rewardKey\n        rewardType\n        displayName\n        __typename\n      }\n      rewardValue\n      __typename\n    }\n    __typename\n  }\n}"
+                                }) as response:
+            (await response.json())['data']['payload']['rewards']
+    except:
+        raise Exception(f'{address} | Error opening weekly chest')
 
 
 @retry(retry=retry_if_exception(Exception), stop=stop_after_attempt(5), reraise=True)
@@ -162,12 +194,25 @@ async def worker(q_account: asyncio.Queue):
                 if status == 'FOUND':
                     logger.info(f'{address} | Opening Daily Chest')
                     await open_daily_chest(client, address)
-                    with open('successfully_claim.txt', 'a', encoding='utf-8') as file:
+                    with open('successfully_claim_daily.txt', 'a', encoding='utf-8') as file:
                         file.write(f'{account}\n')
                 elif status == 'OPENED':
-                    logger.info(f'{address} | Daily Chest has been')
+                    logger.info(f'{address} | Daily Chest has been open')
                 else:
                     logger.info(f'{address} | Daily Chest not found')
+
+                logger.info(f'{address} | Searching Weekly Chest')
+                data = await search_weekly_chest(client, address)
+
+                if data:
+                    chest_ids = [chest['id'] for chest in data]
+                    for chest_id in chest_ids:
+                        logger.info(f'{address} | Opening Weekly Chest')
+                        await open_weekly_chest(client, address, chest_id)
+                    with open('successfully_claim_weekly.txt', 'a', encoding='utf-8') as file:
+                        file.write(f'{account}\n')
+                else:
+                    logger.info(f'{address} | Weekly Chest not found')
 
                 logger.info(f'{address} | Getting token balance')
                 await get_balance(client, address, user_id)
