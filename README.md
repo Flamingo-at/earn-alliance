@@ -1,6 +1,6 @@
 <h1 align="center">Earn Alliance</h1>
 
-<p align="center">Claiming the Daily/Weekly Chest, Checking the balance at <a href="https://www.earnalliance.com/">Earn Alliance</a></p>
+<p align="center">Claiming the Daily Chest, Checking the balance at <a href="https://www.earnalliance.com/">Earn Alliance</a></p>
 <p align="center">
 <img src="https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54">
 </p>
@@ -15,6 +15,7 @@ pip install -r requirements.txt
 
 ## 💻 Preparing
 + Create an ```accounts.txt``` and put the accounts in the format ```address:private_key:ip:port:login:password```
++ Open the ```earn_alliance.py``` through the editor and at the bottom of the code(line 243) insert the key from [rucaptcha](https://rucaptcha.com)
 + Run the bot:
 ```python
 python earn_alliance.py
