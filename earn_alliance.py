@@ -17,6 +17,39 @@ async def create_signature(nonce: str, private_key: str):
     return signed_message.signature.hex()
 
 
+async def sending_captcha(client: ClientSession):
+    try:
+        response = await client.get(f'http://rucaptcha.com/in.php?key={CAPTCHA_KEY}&method=turnstile'
+                                    '&sitekey=0x4AAAAAAALBErj15WPJnECU&pageurl=https://www.earnalliance.com/')
+        data = await response.text()
+        if "ERROR_WRONG_USER_KEY" in data or "ERROR_ZERO_BALANCE" in data:
+            logger.error(data)
+            input()
+            exit()
+        elif 'ERROR' in data:
+            logger.error(data)
+            return await sending_captcha(client)
+        return await solving_captcha(client, data[3:])
+    except Exception as error:
+        raise error
+
+
+async def solving_captcha(client: ClientSession, id: str):
+    while True:
+        try:
+            response = await client.get(f'http://rucaptcha.com/res.php?key={CAPTCHA_KEY}&action=get&id={id}')
+            data = await response.text()
+            if 'ERROR' in data:
+                logger.error(data)
+                return await sending_captcha(client)
+            elif 'OK' in data:
+                return data[3:]
+        except Exception as error:
+            raise error
+        await asyncio.sleep(2)
+    return await sending_captcha(client)
+
+
 @retry(retry=retry_if_exception(Exception), stop=stop_after_attempt(5), reraise=True)
 async def get_nonce(client: ClientSession, address: str) -> str:
     try:
@@ -35,7 +68,7 @@ async def get_nonce(client: ClientSession, address: str) -> str:
 
 
 @retry(retry=retry_if_exception(Exception), stop=stop_after_attempt(5), reraise=True)
-async def login(client: ClientSession, address: str, nonce: str, signature: str) -> str:
+async def login(client: ClientSession, address: str, nonce: str, signature: str, captcha: str) -> str:
     try:
         async with client.post('https://graphql-ea.earnalliance.com/v1/graphql',
                                json={
@@ -46,7 +79,7 @@ async def login(client: ClientSession, address: str, nonce: str, signature: str)
                                        "signature": signature
                                    },
                                    "query": "mutation SignIn($address: String!, $message: String!, $signature: String!) {\n  payload: signIn(\n    args: {address: $address, message: $message, signature: $signature}\n  ) {\n    token\n    __typename\n  }\n}"
-                               }) as response:
+                               }, headers={'X-Turnstile-Token': captcha}) as response:
             token = (await response.json())['data']['payload']['token']
         return token
     except:
@@ -96,22 +129,6 @@ async def search_daily_chest(client: ClientSession, address: str) -> str:
 
 
 @retry(retry=retry_if_exception(Exception), stop=stop_after_attempt(5), reraise=True)
-async def search_weekly_chest(client: ClientSession, address: str) -> str:
-    while True:
-        try:
-            async with client.post('https://graphql-ea.earnalliance.com/v1/graphql',
-                                   json={
-                                       "operationName": "GetWeeklyChests",
-                                       "variables": {},
-                                       "query": "query GetWeeklyChests {\n  payload: getWeeklyChests {\n    chests {\n      id\n      expiredAt\n      collectedAt\n      __typename\n    }\n    releasedAt\n    expiredAt\n    __typename\n  }\n}"
-                                   }) as response:
-                data = (await response.json())['data']['payload']['chests']
-            return data
-        except:
-            raise Exception(f'{address} | Error searching weekly chest')
-
-
-@retry(retry=retry_if_exception(Exception), stop=stop_after_attempt(5), reraise=True)
 async def open_daily_chest(client: ClientSession, address: str):
     try:
         async with client.post('https://graphql-ea.earnalliance.com/v1/graphql',
@@ -123,22 +140,6 @@ async def open_daily_chest(client: ClientSession, address: str):
             (await response.json())['data']['payload']['rewards']
     except:
         raise Exception(f'{address} | Error opening daily chest')
-
-
-@retry(retry=retry_if_exception(Exception), stop=stop_after_attempt(5), reraise=True)
-async def open_weekly_chest(client: ClientSession, address: str, chest_id: str):
-    try:
-        async with client.post('https://graphql-ea.earnalliance.com/v1/graphql',
-                               json={
-                                   "operationName": "OpenWeeklyChest",
-                                   "variables": {
-                                     "userChestId": chest_id
-                                   },
-                                   "query": "mutation OpenWeeklyChest($userChestId: uuid!) {\n  payload: openWeeklyChest(args: {userChestId: $userChestId}) {\n    rewards {\n      reward {\n        rewardRarity\n        rewardKey\n        rewardType\n        displayName\n        __typename\n      }\n      rewardValue\n      __typename\n    }\n    __typename\n  }\n}"
-                                }) as response:
-            (await response.json())['data']['payload']['rewards']
-    except:
-        raise Exception(f'{address} | Error opening weekly chest')
 
 
 @retry(retry=retry_if_exception(Exception), stop=stop_after_attempt(5), reraise=True)
@@ -180,8 +181,11 @@ async def worker(q_account: asyncio.Queue):
 
                 signature = await create_signature(nonce, private_key)
 
+                logger.info(f'{address} | Sending captcha')
+                captcha = await sending_captcha(client)
+
                 logger.info(f'{address} | Login')
-                token = await login(client, address, nonce, signature)
+                token = await login(client, address, nonce, signature, captcha)
 
                 logger.info(f'{address} | Getting token')
                 authorization_token, user_id = await get_token(client, address, token)
@@ -200,19 +204,6 @@ async def worker(q_account: asyncio.Queue):
                     logger.info(f'{address} | Daily Chest has been open')
                 else:
                     logger.info(f'{address} | Daily Chest not found')
-
-                logger.info(f'{address} | Searching Weekly Chest')
-                data = await search_weekly_chest(client, address)
-
-                if data:
-                    chest_ids = [chest['id'] for chest in data]
-                    for chest_id in chest_ids:
-                        logger.info(f'{address} | Opening Weekly Chest')
-                        await open_weekly_chest(client, address, chest_id)
-                    with open('successfully_claim_weekly.txt', 'a', encoding='utf-8') as file:
-                        file.write(f'{account}\n')
-                else:
-                    logger.info(f'{address} | Weekly Chest not found')
 
                 logger.info(f'{address} | Getting token balance')
                 await get_balance(client, address, user_id)
@@ -249,6 +240,9 @@ if __name__ == '__main__':
     delay = int(input('Delay(sec): '))
     threads = int(input('Threads: '))
 
+    CAPTCHA_KEY = 'CAPTCHA_KEY'
+
     asyncio.run(main())
     logger.debug('END')
     input("Press Enter to exit...")
+    
